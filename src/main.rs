@@ -5,8 +5,11 @@ use async_std::{
     task,
     stream::StreamExt,
 };
+use futures::channel::mpsc;
 
 type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync + 'static>>;
+type Sender<T> = mpsc::UnboundedSender<T>;
+type Receiver<T> = mpsc::UnboundedReceiver<T>;
 
 fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
@@ -20,14 +23,21 @@ fn main() -> Result<()> {
 async fn server<A: ToSocketAddrs>(addr: A) -> Result<()> {
     let server = TcpListener::bind(addr).await?;
     println!("{:?}", server.local_addr().unwrap());
+    let (tx, rx) = mpsc::unbounded();
+    task::spawn(broker(rx));
     while let Some(s) = server.incoming().next().await {
         let s = s?;
-        task::spawn(client(s));
+        task::spawn(client(tx.clone(), s));
     }
     Ok(())
 }
 
-async fn client(s: TcpStream) -> Result<()> {
-    println!("{:?}", s.peer_addr());
+async fn broker(_clients: Receiver<String>) -> Result<()> {
+    println!("BROKER");
+    Ok(())
+}
+
+async fn client(_broker: Sender<String>, s: TcpStream) -> Result<()> {
+    println!("CLIENT: {:?}", s.peer_addr());
     Ok(())
 }
