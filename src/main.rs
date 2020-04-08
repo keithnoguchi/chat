@@ -1,11 +1,19 @@
-use std::error::Error;
+use std::{
+    error::Error,
+    sync::Arc,
+};
 
 use async_std::{
+    io::BufReader,
     net::{ToSocketAddrs, TcpListener, TcpStream},
     task,
     stream::StreamExt,
 };
-use futures::channel::mpsc;
+use futures::{
+    channel::mpsc,
+    io::AsyncBufReadExt,
+    sink::SinkExt,
+};
 
 type Result<T> = std::result::Result<T, Box<dyn Error + Send + Sync + 'static>>;
 type Sender<T> = mpsc::UnboundedSender<T>;
@@ -32,12 +40,21 @@ async fn server<A: ToSocketAddrs>(addr: A) -> Result<()> {
     Ok(())
 }
 
-async fn broker(_clients: Receiver<String>) -> Result<()> {
+async fn broker(mut clients: Receiver<String>) -> Result<()> {
     println!("BROKER");
+    while let Some(msg) = clients.next().await {
+        println!("{}", msg);
+    }
     Ok(())
 }
 
-async fn client(_broker: Sender<String>, s: TcpStream) -> Result<()> {
+async fn client(mut broker: Sender<String>, s: TcpStream) -> Result<()> {
     println!("CLIENT: {:?}", s.peer_addr());
+    let s = Arc::new(s);
+    let mut reader = BufReader::new(&*s).lines();
+    while let Some(line) = reader.next().await {
+        let msg = line?;
+        broker.send(msg).await?;
+    }
     Ok(())
 }
