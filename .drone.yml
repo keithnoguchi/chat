@@ -1,0 +1,47 @@
+kind: pipeline
+type: docker
+name: default
+steps:
+  - name: format
+    image: archlinux/base
+    commands:
+      - pacman -Sy --noconfirm make gcc pkgconf rustup
+      - rustup update stable
+      - rustup default stable
+      - rustup component add rustfmt
+      - rustfmt --edition 2018 --check **/*.rs
+  - name: lint
+    image: archlinux/base
+    commands:
+      - pacman -Sy --noconfirm make gcc pkgconf rustup grep
+      - rustup update stable
+      - rustup default stable
+      - rustup component add clippy
+      - cargo clippy -- -D warnings
+  - name: documentation
+    image: archlinux/base
+    commands:
+      - pacman -Sy --noconfirm make gcc pkgconf rustup grep
+      - rustup update stable
+      - rustup default stable
+      - cargo doc
+  - name: build
+    image: archlinux/base
+    commands:
+      - pacman -Sy --noconfirm make gcc pkgconf rustup grep
+      - rustup update stable
+      - rustup default stable
+      - cargo build
+    depends_on:
+      - format
+      - lint
+      - documentation
+  - name: test
+    image: archlinux/base
+    commands:
+      - pacman -Sy --noconfirm make gcc pkgconf rustup grep
+      - rustup update stable
+      - rustup default stable
+      - cargo test
+    depends_on:
+      - build
