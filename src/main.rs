@@ -27,8 +27,8 @@ fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
     let addr = args
         .next()
-        .map(|addr| addr.parse().unwrap_or("[::1]:8000".to_string()))
-        .unwrap_or("[::1]:8000".to_string());
+        .map(|addr| addr.parse().unwrap_or_else(|_| "[::1]:8000".to_string()))
+        .unwrap_or_else(|| "[::1]:8000".to_string());
     task::block_on(server(addr))
 }
 
