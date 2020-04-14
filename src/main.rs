@@ -1,5 +1,6 @@
 //! Async chat server
 use std::{
+    collections::HashMap,
     env, error,
     sync::Arc,
 };
@@ -8,7 +9,12 @@ use async_std::{
     net::{TcpListener, TcpStream, ToSocketAddrs},
     task::{self, TaskId},
 };
-use futures::{channel::mpsc, sink::SinkExt, stream::StreamExt};
+use futures::{
+    channel::mpsc,
+    io::AsyncWriteExt,
+    sink::SinkExt,
+    stream::StreamExt,
+};
 
 enum Event {
     Join(TaskId, Arc<TcpStream>),
@@ -48,10 +54,22 @@ async fn server<A: ToSocketAddrs>(addr: A) -> Result<()> {
 }
 
 async fn broker(mut reader: Receiver<Event>) -> Result<()> {
+    let mut peers = HashMap::new();
     while let Some(event) = reader.next().await {
         match event {
-            Event::Join(id, s) => eprintln!("[{:?}] joined: {:?}", id, s.peer_addr()?),
-            Event::Leave(id) => eprintln!("[{:?}] left", id),
+            Event::Join(id, s) => {
+                let (tx, rx) = mpsc::unbounded();
+                task::spawn(writer(rx, s));
+                peers.insert(id, tx);
+            }
+            Event::Leave(id) => {
+                if let Some(mut tx) = peers.remove(&id) {
+                    if let Err(err) = tx.close().await {
+                        eprintln!("writer close failure: {}", err);
+                    }
+                    drop(tx);
+                }
+            }
             Event::Message(id, msg) => eprintln!("[{:?}] {}", id, msg),
         }
     }
@@ -63,5 +81,13 @@ async fn reader(mut broker: Sender<Event>, s: TcpStream) -> Result<()> {
     let s = Arc::new(s);
     broker.send(Event::Join(id, Arc::clone(&s))).await?;
     broker.send(Event::Leave(id)).await?;
+    Ok(())
+}
+
+async fn writer(mut broker: Receiver<String>, s: Arc<TcpStream>) -> Result<()> {
+    while let Some(msg) = broker.next().await {
+        eprintln!("{}", msg);
+    }
+    (&*s).close().await?;
     Ok(())
 }
