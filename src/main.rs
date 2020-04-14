@@ -8,6 +8,7 @@ use async_std::{
     net::{TcpListener, ToSocketAddrs},
     task,
 };
+use futures::stream::StreamExt;
 
 type Result<T> = std::result::Result<T, Box<dyn error::Error>>;
 
@@ -25,5 +26,9 @@ fn main() -> Result<()> {
 async fn server<A: ToSocketAddrs>(addr: A) -> Result<()> {
     let listener = TcpListener::bind(addr).await?;
     println!("{:?}", listener.local_addr()?);
+    while let Some(s) = listener.incoming().next().await {
+        let s = s?;
+        println!("{:?}", s.peer_addr()?);
+    }
     Ok(())
 }
