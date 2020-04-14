@@ -1,18 +1,11 @@
 //! Async chat server
-use std::{
-    env,
-    error,
-};
+use std::{env, error};
 
 use async_std::{
     net::{TcpListener, TcpStream, ToSocketAddrs},
     task,
 };
-use futures::{
-    stream::StreamExt,
-    sink::SinkExt,
-    channel::mpsc,
-};
+use futures::{channel::mpsc, sink::SinkExt, stream::StreamExt};
 
 type Sender<T> = mpsc::UnboundedSender<T>;
 type Receiver<T> = mpsc::UnboundedReceiver<T>;
