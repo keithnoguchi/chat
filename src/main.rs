@@ -1,9 +1,5 @@
 //! Async chat server
-use std::{
-    collections::HashMap,
-    env, error,
-    sync::Arc,
-};
+use std::{collections::HashMap, env, error, sync::Arc};
 
 use async_std::{
     net::{TcpListener, TcpStream, ToSocketAddrs},
@@ -11,7 +7,7 @@ use async_std::{
 };
 use futures::{
     channel::mpsc,
-    io::{BufReader, AsyncBufReadExt, AsyncWriteExt},
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     sink::SinkExt,
     stream::StreamExt,
 };
