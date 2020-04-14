@@ -11,7 +11,7 @@ use async_std::{
 };
 use futures::{
     channel::mpsc,
-    io::AsyncWriteExt,
+    io::{BufReader, AsyncBufReadExt, AsyncWriteExt},
     sink::SinkExt,
     stream::StreamExt,
 };
@@ -70,7 +70,16 @@ async fn broker(mut reader: Receiver<Event>) -> Result<()> {
                     drop(tx);
                 }
             }
-            Event::Message(id, msg) => eprintln!("[{:?}] {}", id, msg),
+            Event::Message(sender_id, msg) => {
+                let msg = format!("CLIENT{}> {}\n", sender_id, msg);
+                for (peer_id, mut s) in &peers {
+                    if peer_id != &sender_id {
+                        if let Err(err) = s.send(msg.clone()).await {
+                            eprintln!("writer write error: {}", err);
+                        }
+                    }
+                }
+            }
         }
     }
     Ok(())
@@ -79,14 +88,26 @@ async fn broker(mut reader: Receiver<Event>) -> Result<()> {
 async fn reader(mut broker: Sender<Event>, s: TcpStream) -> Result<()> {
     let id = task::current().id();
     let s = Arc::new(s);
+    let mut lines = BufReader::new(&*s).lines();
     broker.send(Event::Join(id, Arc::clone(&s))).await?;
+    while let Some(line) = lines.next().await {
+        match line {
+            Ok(line) => broker.send(Event::Message(id, line)).await?,
+            Err(err) => {
+                eprintln!("client error: {}", err);
+                break;
+            }
+        }
+    }
     broker.send(Event::Leave(id)).await?;
     Ok(())
 }
 
 async fn writer(mut broker: Receiver<String>, s: Arc<TcpStream>) -> Result<()> {
     while let Some(msg) = broker.next().await {
-        eprintln!("{}", msg);
+        if let Err(err) = (&*s).write_all(msg.as_bytes()).await {
+            eprintln!("write error: {}", err);
+        }
     }
     (&*s).close().await?;
     Ok(())
