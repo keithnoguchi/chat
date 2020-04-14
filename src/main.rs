@@ -1,11 +1,20 @@
 //! Async chat server
-use std::{env, error};
+use std::{
+    env, error,
+    sync::Arc,
+};
 
 use async_std::{
     net::{TcpListener, TcpStream, ToSocketAddrs},
-    task,
+    task::{self, TaskId},
 };
 use futures::{channel::mpsc, sink::SinkExt, stream::StreamExt};
+
+enum Event {
+    Join(TaskId, Arc<TcpStream>),
+    Leave(TaskId),
+    Message(TaskId, String),
+}
 
 type Sender<T> = mpsc::UnboundedSender<T>;
 type Receiver<T> = mpsc::UnboundedReceiver<T>;
@@ -38,14 +47,21 @@ async fn server<A: ToSocketAddrs>(addr: A) -> Result<()> {
     Ok(())
 }
 
-async fn broker(mut reader: Receiver<String>) -> Result<()> {
-    while let Some(req) = reader.next().await {
-        eprintln!("request from {}", req);
+async fn broker(mut reader: Receiver<Event>) -> Result<()> {
+    while let Some(event) = reader.next().await {
+        match event {
+            Event::Join(id, s) => eprintln!("[{:?}] joined: {:?}", id, s.peer_addr()?),
+            Event::Leave(id) => eprintln!("[{:?}] left", id),
+            Event::Message(id, msg) => eprintln!("[{:?}] {}", id, msg),
+        }
     }
     Ok(())
 }
 
-async fn reader(mut broker: Sender<String>, s: TcpStream) -> Result<()> {
-    broker.send(format!("{:?}", s.peer_addr()?)).await?;
+async fn reader(mut broker: Sender<Event>, s: TcpStream) -> Result<()> {
+    let id = task::current().id();
+    let s = Arc::new(s);
+    broker.send(Event::Join(id, Arc::clone(&s))).await?;
+    broker.send(Event::Leave(id)).await?;
     Ok(())
 }
