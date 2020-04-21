@@ -15,8 +15,8 @@ fn main() -> Result<()> {
     let mut args = args().skip(1);
     let addr = args
         .next()
-        .map(|addr| addr.parse().unwrap_or(ADDR.to_string()))
-        .unwrap_or(ADDR.to_string());
+        .map(|addr| addr.parse().unwrap_or_else(|_| ADDR.to_string()))
+        .unwrap_or_else(|| ADDR.to_string());
     task::block_on(server(addr))
 }
 
