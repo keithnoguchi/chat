@@ -91,7 +91,7 @@ async fn writer(mut broker: Receiver<String>, s: Arc<TcpStream>) -> Result<()> {
     while let Some(msg) = broker.next().await {
         if let Err(err) = (&*s).write_all(msg.as_bytes()).await {
             broker.close();
-            Err(err)?;
+            return Err(err.into());
         }
     }
     broker.close();
