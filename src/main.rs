@@ -1,9 +1,4 @@
 //! Async chat application
-use std::{
-    env::args,
-    sync::Arc,
-};
-
 use async_std::{
     io::BufReader,
     net::{TcpListener, TcpStream, ToSocketAddrs},
@@ -11,9 +6,14 @@ use async_std::{
 };
 use futures::channel::mpsc;
 use futures_util::{
-    io::AsyncBufReadExt,
+    io::{AsyncBufReadExt, AsyncWriteExt},
     sink::SinkExt,
     stream::StreamExt,
+};
+use std::{
+    collections::HashMap,
+    env::args,
+    sync::Arc,
 };
 
 #[derive(Debug)]
@@ -59,11 +59,46 @@ async fn server<A: ToSocketAddrs>(addr: A) -> Result<()> {
 }
 
 async fn broker(mut reader: Receiver<Event>) -> Result<()> {
+    let mut peers = HashMap::new();
     eprintln!("broker started");
     while let Some(event) = reader.next().await {
-        eprintln!("{:?}", event);
+        match event {
+            Event::Join(id, stream) => {
+                let (tx, rx) = mpsc::unbounded();
+                if let Some(old) = peers.insert(id, tx) {
+                    old.close_channel();
+                }
+                task::spawn(writer(rx, stream));
+            }
+            Event::Leave(id) => {
+                if let Some(writer) = peers.remove(&id) {
+                    writer.close_channel();
+                }
+            }
+            Event::Message(id, msg) => {
+                let msg = format!("client{}> {}\n", id, msg);
+                for (peer_id, mut writer) in &peers {
+                    if peer_id != &id {
+                        if let Err(err) = writer.send(msg.clone()).await {
+                            eprintln!("send error to {}: {}", peer_id, err);
+                        }
+                    }
+                }
+            }
+        }
     }
     eprintln!("broker done");
+    Ok(())
+}
+
+async fn writer(mut broker: Receiver<String>, s: Arc<TcpStream>) -> Result<()> {
+    while let Some(msg) = broker.next().await {
+        if let Err(err) = (&*s).write_all(msg.as_bytes()).await {
+            broker.close();
+            Err(err)?;
+        }
+    }
+    broker.close();
     Ok(())
 }
 
