@@ -10,11 +10,7 @@ use futures_util::{
     sink::SinkExt,
     stream::StreamExt,
 };
-use std::{
-    collections::HashMap,
-    env::args,
-    sync::Arc,
-};
+use std::{collections::HashMap, env::args, sync::Arc};
 
 #[derive(Debug)]
 enum Event {
