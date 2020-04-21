@@ -7,13 +7,21 @@ use std::{
 use async_std::{
     io::BufReader,
     net::{TcpListener, TcpStream, ToSocketAddrs},
-    task,
+    task::{self, TaskId},
 };
 use futures::channel::mpsc;
 use futures_util::{
     io::AsyncBufReadExt,
+    sink::SinkExt,
     stream::StreamExt,
 };
+
+#[derive(Debug)]
+enum Event {
+    Join(TaskId, Arc<TcpStream>),
+    Leave(TaskId),
+    Message(TaskId, String),
+}
 
 type Sender<T> = mpsc::UnboundedSender<T>;
 type Receiver<T> = mpsc::UnboundedReceiver<T>;
@@ -50,21 +58,24 @@ async fn server<A: ToSocketAddrs>(addr: A) -> Result<()> {
     Ok(())
 }
 
-async fn broker(mut reader: Receiver<String>) -> Result<()> {
+async fn broker(mut reader: Receiver<Event>) -> Result<()> {
     eprintln!("broker started");
     while let Some(event) = reader.next().await {
+        eprintln!("{:?}", event);
     }
     eprintln!("broker done");
     Ok(())
 }
 
-async fn reader(mut broker: Sender<String>, s: TcpStream) -> Result<()> {
-    eprintln!("reader: {:?}", s.peer_addr());
+async fn reader(mut broker: Sender<Event>, s: TcpStream) -> Result<()> {
     let s = Arc::new(s);
+    let id = task::current().id();
+    broker.send(Event::Join(id, Arc::clone(&s))).await?;
     let mut lines = BufReader::new(&*s).lines();
     while let Some(line) = lines.next().await {
-        eprintln!("{:?}", line);
+        let line = line?;
+        broker.send(Event::Message(id, line)).await?;
     }
-    eprintln!("reader: done");
+    broker.send(Event::Leave(id)).await?;
     Ok(())
 }
