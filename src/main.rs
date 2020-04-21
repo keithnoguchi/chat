@@ -1,18 +1,23 @@
 //! Async chat application
-use std::env::args;
+use std::{
+    env::args,
+    sync::Arc,
+};
 
 use async_std::{
-    net::{TcpListener, ToSocketAddrs},
+    io::BufReader,
+    net::{TcpListener, TcpStream, ToSocketAddrs},
     task,
 };
-use futures::{
-    channel::mpsc,
+use futures::channel::mpsc;
+use futures_util::{
+    io::AsyncBufReadExt,
     stream::StreamExt,
 };
 
-type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Sync + Send + 'static>>;
 type Sender<T> = mpsc::UnboundedSender<T>;
 type Receiver<T> = mpsc::UnboundedReceiver<T>;
+type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Sync + Send + 'static>>;
 
 const ADDR: &str = "[::1]:8000";
 
@@ -28,6 +33,7 @@ fn main() -> Result<()> {
 async fn server<A: ToSocketAddrs>(addr: A) -> Result<()> {
     let listener = TcpListener::bind(addr).await?;
     println!("addr={:?}", listener.local_addr());
+    let mut readers = Vec::new();
     let (tx, rx) = mpsc::unbounded();
     task::spawn(broker(rx));
     while let Some(s) = listener.incoming().next().await {
@@ -35,10 +41,11 @@ async fn server<A: ToSocketAddrs>(addr: A) -> Result<()> {
             Err(err) => {
                 eprintln!("accept error: {}", err);
             }
-            Ok(s) => {
-                println!("remote addr={:?}", s.peer_addr());
-            }
+            Ok(s) => readers.push(task::spawn(reader(tx.clone(), s))),
         }
+    }
+    while let Some(reader) = readers.pop() {
+        reader.await?;
     }
     Ok(())
 }
@@ -48,5 +55,16 @@ async fn broker(mut reader: Receiver<String>) -> Result<()> {
     while let Some(event) = reader.next().await {
     }
     eprintln!("broker done");
+    Ok(())
+}
+
+async fn reader(mut broker: Sender<String>, s: TcpStream) -> Result<()> {
+    eprintln!("reader: {:?}", s.peer_addr());
+    let s = Arc::new(s);
+    let mut lines = BufReader::new(&*s).lines();
+    while let Some(line) = lines.next().await {
+        eprintln!("{:?}", line);
+    }
+    eprintln!("reader: done");
     Ok(())
 }
