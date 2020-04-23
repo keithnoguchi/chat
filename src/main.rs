@@ -75,7 +75,7 @@ async fn broker(mut readers: Receiver<Event>) -> Result<()> {
                 }
             }
             Event::Message(id, msg) => {
-                if let Some(_) = peers.get(&id) {
+                if peers.get(&id).is_some() {
                     let msg = format!("client{}> {}\n", id, msg);
                     for (peer_id, mut tx) in &peers {
                         if peer_id != &id {
@@ -86,9 +86,7 @@ async fn broker(mut readers: Receiver<Event>) -> Result<()> {
             }
         }
     }
-    for writer in peers.values() {
-        drop(writer);
-    }
+    peers.drain();
     while let Some(writer) = writers.pop() {
         writer.await?;
     }
