@@ -5,6 +5,7 @@ use async_std::{
     task::{self, TaskId},
 };
 use futures_util::{
+    io::{AsyncBufReadExt, BufReader},
     stream::StreamExt,
     sink::SinkExt,
 };
@@ -70,8 +71,14 @@ async fn broker(mut readers: Receiver<Event>) -> Result<()> {
 async fn reader(mut broker: Sender<Event>, stream: TcpStream) -> Result<()> {
     let id = task::current().id();
     let stream = Arc::new(stream);
-    eprintln!("peer={:?}", stream.peer_addr().unwrap());
     broker.send(Event::Join(id, Arc::clone(&stream))).await?;
+    let mut reader = BufReader::new(&*stream).lines();
+    while let Some(line) = reader.next().await {
+        match line {
+            Err(err) => eprintln!("read error: {}", err),
+            Ok(line) => broker.send(Event::Message(id, line)).await?,
+        }
+    }
     broker.send(Event::Leave(id)).await?;
     Ok(())
 }
