@@ -4,18 +4,13 @@ use async_std::{
     sync::Arc,
     task::{self, TaskId},
 };
+use futures_channel::mpsc::{unbounded, UnboundedReceiver, UnboundedSender};
 use futures_util::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
-    stream::StreamExt,
     sink::SinkExt,
+    stream::StreamExt,
 };
-use futures_channel::mpsc::{unbounded, UnboundedSender, UnboundedReceiver};
-use std::{
-    collections::HashMap,
-    error::Error,
-    env::args,
-    result,
-};
+use std::{collections::HashMap, env::args, error::Error, result};
 
 type Result<T> = result::Result<T, Box<dyn Error + Send + Sync + 'static>>;
 type Sender<T> = UnboundedSender<T>;
