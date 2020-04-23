@@ -8,5 +8,6 @@ edition = "2018"
 
 [dependencies]
 futures-util = "0.3"
+futures-channel = "0.3"
 futures = "0.3"
 async-std = "1"
