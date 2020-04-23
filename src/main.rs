@@ -5,12 +5,13 @@ use async_std::{
     task::{self, TaskId},
 };
 use futures_util::{
-    io::{AsyncBufReadExt, BufReader},
+    io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     stream::StreamExt,
     sink::SinkExt,
 };
 use futures_channel::mpsc::{unbounded, UnboundedSender, UnboundedReceiver};
 use std::{
+    collections::HashMap,
     error::Error,
     env::args,
     result,
@@ -62,8 +63,39 @@ async fn listener<A: ToSocketAddrs>(addr: A) -> Result<()> {
 }
 
 async fn broker(mut readers: Receiver<Event>) -> Result<()> {
+    let mut peers = HashMap::new();
+    let mut writers = vec![];
     while let Some(event) = readers.next().await {
-        eprintln!("{:?}", event);
+        match event {
+            Event::Join(id, stream) => {
+                let (tx, rx) = unbounded();
+                if let Some(old) = peers.insert(id, tx) {
+                    drop(old);
+                }
+                writers.push(task::spawn(writer(rx, stream)));
+            }
+            Event::Leave(id) => {
+                if let Some(tx) = peers.remove(&id) {
+                    drop(tx);
+                }
+            }
+            Event::Message(id, msg) => {
+                if let Some(_) = peers.get(&id) {
+                    let msg = format!("client{}> {}\n", id, msg);
+                    for (peer_id, mut tx) in &peers {
+                        if peer_id != &id {
+                            tx.send(msg.clone()).await?;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    for writer in peers.values() {
+        drop(writer);
+    }
+    while let Some(writer) = writers.pop() {
+        writer.await?;
     }
     Ok(())
 }
@@ -75,10 +107,17 @@ async fn reader(mut broker: Sender<Event>, stream: TcpStream) -> Result<()> {
     let mut reader = BufReader::new(&*stream).lines();
     while let Some(line) = reader.next().await {
         match line {
-            Err(err) => eprintln!("read error: {}", err),
             Ok(line) => broker.send(Event::Message(id, line)).await?,
+            Err(_) => break,
         }
     }
     broker.send(Event::Leave(id)).await?;
+    Ok(())
+}
+
+async fn writer(mut broker: Receiver<String>, stream: Arc<TcpStream>) -> Result<()> {
+    while let Some(msg) = broker.next().await {
+        (&*stream).write_all(msg.as_bytes()).await?;
+    }
     Ok(())
 }
