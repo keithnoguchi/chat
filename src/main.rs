@@ -1,4 +1,9 @@
 //! chat server
+use async_std::{
+    net::{TcpListener, TcpStream, ToSocketAddrs},
+    task,
+};
+use futures_util::stream::StreamExt;
 use std::{
     error::Error,
     env::args,
@@ -15,6 +20,30 @@ fn main() -> Result<()> {
         .next()
         .map(|addr| addr.parse().unwrap_or_else(|_| ADDR.to_string()))
         .unwrap_or_else(|| ADDR.to_string());
-    println!("addr={}", addr);
+    task::block_on(listener(addr))
+}
+
+async fn listener<A: ToSocketAddrs>(addr: A) -> Result<()> {
+    let listener = TcpListener::bind(addr).await?;
+    let mut readers = vec![];
+
+    while let Some(stream) = listener.incoming().next().await {
+        match stream {
+            Err(err) => {
+                eprintln!("accept error: {}", err);
+            }
+            Ok(stream) => {
+                readers.push(task::spawn(reader(stream)));
+            }
+        }
+    }
+    while let Some(reader) = readers.pop() {
+        reader.await?;
+    }
+    Ok(())
+}
+
+async fn reader(stream: TcpStream) -> Result<()> {
+    eprintln!("peer={:?}", stream.peer_addr().unwrap());
     Ok(())
 }
